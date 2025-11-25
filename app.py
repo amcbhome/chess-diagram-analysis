@@ -101,7 +101,7 @@ if run_button:
     # Render board
     try:
         board = chess.Board(fen)
-        svg = chess.svg.board(board, size=400)
+        svg = chess.svg.board(board, size=300)
     except Exception:
         st.error("Invalid FEN. Please correct it.")
         st.stop()
