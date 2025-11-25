@@ -61,7 +61,6 @@ with st.sidebar:
     fen = st.text_input(
         "Enter FEN:",
         value="rnbqkbnr/pppp2pp/8/4pp2/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
-        #value="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     )
 
     db_choice = st.selectbox(
@@ -70,6 +69,8 @@ with st.sidebar:
     )
 
     rating_range = None
+    rating_label = ""
+
     if db_choice == "Lichess":
         st.subheader("Rating Filter")
         rating_selector = st.selectbox(
@@ -86,6 +87,8 @@ with st.sidebar:
         elif rating_selector == "2500+":
             rating_range = (2500, 2900)
 
+        rating_label = rating_selector
+
     st.markdown("---")
     run_button = st.button("Run Analysis")
 
@@ -99,19 +102,24 @@ if run_button:
     try:
         board = chess.Board(fen)
         svg = chess.svg.board(board, size=400)
-        # st.subheader("Board Position")
-        render_svg(svg)
     except Exception:
         st.error("Invalid FEN. Please correct it.")
         st.stop()
 
-    st.subheader("Database Results")
+    # Layout: Board left, Table right
+    col1, col2 = st.columns([2, 3])
+
+    with col1:
+        st.subheader("Board Position")
+        render_svg(svg)
 
     # Query database
     if db_choice == "Masters":
         data = query_lichess(fen, database="masters")
+        row_label = "Masters"
     else:
         data = query_lichess(fen, database="lichess", ratings=rating_range)
+        row_label = f"Lichess {rating_label}"
 
     if not data:
         st.error("No data returned. Try a different position or database.")
@@ -122,9 +130,7 @@ if run_button:
         st.warning("No moves found for this position in the selected database.")
         st.stop()
 
-    # -----------------------------------------------------------
-    # Prepare move data for charts
-    # -----------------------------------------------------------
+    # Prepare move data for charts + table
     chart_rows = []
 
     for m in moves:
@@ -133,7 +139,6 @@ if run_button:
         black = m.get("black", 0) or 0
         games = m.get("games", white + draws + black)
 
-        # Avoid division by zero
         if games > 0:
             white_pct = 100 * white / games
             draw_pct = 100 * draws / games
@@ -155,6 +160,28 @@ if run_button:
     df = pd.DataFrame(chart_rows)
 
     # -----------------------------------------------------------
+    # NEXT-MOVE TABLE (Top 3 moves)
+    # -----------------------------------------------------------
+    with col2:
+        st.subheader("Next Move Summary")
+
+        top3 = df.sort_values("Games", ascending=False).head(3)
+        top_moves = top3["Move"].tolist()
+
+        # Fill missing cells if <3 moves
+        while len(top_moves) < 3:
+            top_moves.append("—")
+
+        table_df = pd.DataFrame({
+            "Database/Rating": [row_label],
+            "1": [top_moves[0]],
+            "2": [top_moves[1]],
+            "3": [top_moves[2]]
+        }).set_index("Database/Rating")
+
+        st.table(table_df)
+
+    # -----------------------------------------------------------
     # MAIN CHART (Horizontal bars)
     # -----------------------------------------------------------
     st.write("### Move Statistics (Interactive Chart)")
@@ -165,13 +192,7 @@ if run_button:
         .encode(
             y=alt.Y("Move:N", sort="-x", title="Move"),
             x=alt.X("Games:Q", title="Games Played"),
-            tooltip=[
-                "Move",
-                "Games",
-                "White %",
-                "Draw %",
-                "Black %"
-            ]
+            tooltip=["Move", "Games", "White %", "Draw %", "Black %"]
         )
         .properties(
             width="container",
@@ -183,53 +204,10 @@ if run_button:
     st.altair_chart(games_chart, use_container_width=True)
 
     # -----------------------------------------------------------
-    # OPTIONAL — Win/Draw/Loss Percentage Chart
-    # -----------------------------------------------------------
-    with st.expander("Show Win/Draw/Loss Percentage Chart"):
-        long_df = df.melt(
-            id_vars=["Move"],
-            value_vars=["White %", "Draw %", "Black %"],
-            var_name="Result",
-            value_name="Percentage"
-        )
-
-        win_chart = (
-            alt.Chart(long_df)
-            .mark_bar()
-            .encode(
-                y=alt.Y("Move:N", sort="-x"),
-                x=alt.X("Percentage:Q", title="Percentage"),
-                color="Result:N",
-                tooltip=["Move", "Result", "Percentage"]
-            )
-            .properties(
-                width="container",
-                height=450,
-                title="Win / Draw / Loss Percentages"
-            )
-        )
-
-        st.altair_chart(win_chart, use_container_width=True)
-
-    # -----------------------------------------------------------
     # BEST MOVE SUMMARY
     # -----------------------------------------------------------
-    best = max(
-        moves,
-        key=lambda x: x.get("games", (
-            (x.get("white", 0) or 0) +
-            (x.get("draws", 0) or 0) +
-            (x.get("black", 0) or 0)
-        ))
-    )
-
-    white_b = best.get("white", 0) or 0
-    draws_b = best.get("draws", 0) or 0
-    black_b = best.get("black", 0) or 0
-    best_games = best.get("games", white_b + draws_b + black_b)
-    best_move = best.get("san", "?")
-
-    st.success(f"Most played move: **{best_move}** ({best_games:,} games)")
+    best = df.sort_values("Games", ascending=False).iloc[0]
+    st.success(f"Most played move: **{best['Move']}** ({best['Games']:,} games)")
 
 else:
     st.info("Enter a FEN and select database options to begin.")
