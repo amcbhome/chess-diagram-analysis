@@ -98,7 +98,7 @@ if run_button:
     # Render board
     try:
         board = chess.Board(fen)
-        svg = chess.svg.board(board, size=450)
+        svg = chess.svg.board(board, size=400)
         # st.subheader("Board Position")
         render_svg(svg)
     except Exception:
