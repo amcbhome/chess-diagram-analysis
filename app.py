@@ -98,5 +98,137 @@ if run_button:
     try:
         board = chess.Board(fen)
         svg = chess.svg.board(board, size=450)
-        st.subheader("Bo
+        st.subheader("Board Position")
+        render_svg(svg)
+    except Exception:
+        st.error("Invalid FEN. Please correct it.")
+        st.stop()
+
+    st.subheader("Database Results")
+
+    # Query database
+    if db_choice == "Masters":
+        data = query_lichess(fen, database="masters")
+    else:
+        data = query_lichess(fen, database="lichess", ratings=rating_range)
+
+    if not data:
+        st.error("No data returned. Try a different position or database.")
+        st.stop()
+
+    moves = data.get("moves", [])
+    if len(moves) == 0:
+        st.warning("No moves found for this position in the selected database.")
+        st.stop()
+
+    # -----------------------------------------------------------
+    # Prepare move data for charts
+    # NOTE: Lichess often gives counts, not percentages.
+    # We treat white/draws/black as game counts and compute total.
+    # -----------------------------------------------------------
+    chart_rows = []
+
+    for m in moves:
+        white = m.get("white", 0) or 0
+        draws = m.get("draws", 0) or 0
+        black = m.get("black", 0) or 0
+        games = m.get("games", white + draws + black)
+
+        # Avoid division by zero
+        if games > 0:
+            white_pct = 100 * white / games
+            draw_pct = 100 * draws / games
+            black_pct = 100 * black / games
+        else:
+            white_pct = draw_pct = black_pct = 0.0
+
+        chart_rows.append({
+            "Move": m.get("san", ""),
+            "White Wins": white,
+            "Draws": draws,
+            "Black Wins": black,
+            "Games": games,
+            "White %": round(white_pct, 1),
+            "Draw %": round(draw_pct, 1),
+            "Black %": round(black_pct, 1)
+        })
+
+    df = pd.DataFrame(chart_rows)
+
+    # -----------------------------------------------------------
+    # MAIN CHART — Move popularity
+    # -----------------------------------------------------------
+    st.write("### Move Statistics (Interactive Chart)")
+
+    games_chart = (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Move:N", sort="-y", title="Move"),
+            y=alt.Y("Games:Q", title="Games Played"),
+            tooltip=[
+                "Move",
+                "Games",
+                "White %",
+                "Draw %",
+                "Black %"
+            ]
+        )
+        .properties(
+            width="container",
+            height=450,
+            title="Move Popularity by Games Played"
+        )
+    )
+
+    st.altair_chart(games_chart, use_container_width=True)
+
+    # -----------------------------------------------------------
+    # OPTIONAL — Win Rate Comparison Chart (robust melt version)
+    # -----------------------------------------------------------
+    with st.expander("Show Win/Draw/Loss Percentage Chart"):
+        long_df = df.melt(
+            id_vars=["Move"],
+            value_vars=["White %", "Draw %", "Black %"],
+            var_name="Result",
+            value_name="Percentage"
+        )
+
+        win_chart = (
+            alt.Chart(long_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Move:N", sort="-y"),
+                y=alt.Y("Percentage:Q", title="Percentage"),
+                color="Result:N",
+                tooltip=["Move", "Result", "Percentage"]
+            )
+            .properties(
+                width="container",
+                height=450,
+                title="Win / Draw / Loss Percentages"
+            )
+        )
+
+        st.altair_chart(win_chart, use_container_width=True)
+
+    # -----------------------------------------------------------
+    # BEST MOVE SUMMARY
+    # -----------------------------------------------------------
+    best = max(moves, key=lambda x: x.get("games", (
+        (x.get("white", 0) or 0) +
+        (x.get("draws", 0) or 0) +
+        (x.get("black", 0) or 0)
+    )))
+    white_b = best.get("white", 0) or 0
+    draws_b = best.get("draws", 0) or 0
+    black_b = best.get("black", 0) or 0
+    best_games = best.get("games", white_b + draws_b + black_b)
+    best_move = best.get("san", "?")
+
+    st.success(f"Most played move: **{best_move}** ({best_games} games)")
+
+else:
+    st.info("Enter a FEN and select database options to begin.")
+
 
