@@ -3,11 +3,12 @@ import requests
 import chess
 import chess.svg
 from base64 import b64encode
+import altair as alt
+import pandas as pd
 
-
-# -----------------------------
-# Helper: Render board SVG
-# -----------------------------
+# -----------------------------------------------------------
+# Helper: Render SVG chessboard
+# -----------------------------------------------------------
 def render_svg(svg):
     """Render SVG chessboard in Streamlit."""
     b64 = b64encode(svg.encode("utf-8")).decode("utf-8")
@@ -15,9 +16,9 @@ def render_svg(svg):
     st.write(html, unsafe_allow_html=True)
 
 
-# -----------------------------
+# -----------------------------------------------------------
 # Query Lichess Opening Explorer API
-# -----------------------------
+# -----------------------------------------------------------
 def query_lichess(fen, database="masters", ratings=None):
     base_url = "https://explorer.lichess.ovh/"
 
@@ -26,7 +27,8 @@ def query_lichess(fen, database="masters", ratings=None):
 
     elif database == "lichess":
         if ratings:
-            url = f"{base_url}lichess?fen={fen}&ratings={ratings[0]},{ratings[1]}"
+            low, high = ratings
+            url = f"{base_url}lichess?fen={fen}&ratings={low},{high}"
         else:
             url = f"{base_url}lichess?fen={fen}"
 
@@ -38,9 +40,9 @@ def query_lichess(fen, database="masters", ratings=None):
     return response.json()
 
 
-# -----------------------------
+# -----------------------------------------------------------
 # Streamlit Page Config
-# -----------------------------
+# -----------------------------------------------------------
 st.set_page_config(
     page_title="Chess Next-Move Explorer",
     page_icon="♟",
@@ -50,9 +52,9 @@ st.set_page_config(
 st.title("♟ Chess Position Explorer — Masters & Lichess Databases")
 
 
-# -----------------------------
-# Sidebar for Inputs
-# -----------------------------
+# -----------------------------------------------------------
+# SIDEBAR
+# -----------------------------------------------------------
 with st.sidebar:
     st.header("Position & Database Settings")
 
@@ -87,12 +89,12 @@ with st.sidebar:
     run_button = st.button("Run Analysis")
 
 
-# -----------------------------
-# When User Clicks 'Run Analysis'
-# -----------------------------
+# -----------------------------------------------------------
+# USER CLICKED "RUN ANALYSIS"
+# -----------------------------------------------------------
 if run_button:
 
-    # Board Rendering
+    # Render board
     try:
         board = chess.Board(fen)
         svg = chess.svg.board(board, size=450)
@@ -104,40 +106,93 @@ if run_button:
 
     st.subheader("Database Results")
 
-    # Query appropriate database
+    # Query database
     if db_choice == "Masters":
         data = query_lichess(fen, database="masters")
     else:
         data = query_lichess(fen, database="lichess", ratings=rating_range)
 
     if not data:
-        st.error("No data returned from the database. Try another position.")
+        st.error("No data returned. Try a different position or database.")
         st.stop()
 
     moves = data.get("moves", [])
-
     if len(moves) == 0:
         st.warning("No moves found for this position in the selected database.")
         st.stop()
 
-    # -----------------------------
-    # Move Statistics Table
-    # -----------------------------
-    st.write("### Move Statistics")
+    # -----------------------------------------------------------
+    # Prepare move data for charts
+    # -----------------------------------------------------------
+    chart_rows = []
 
-    move_rows = []
     for m in moves:
-        move_rows.append({
+        chart_rows.append({
             "Move": m.get("san", ""),
             "White Wins %": round(m.get("white", 0), 1),
             "Draw %": round(m.get("draws", 0), 1),
             "Black Wins %": round(m.get("black", 0), 1),
-            "Games": m.get("games", m.get("total", 0))  # FIXED
+            "Games": m.get("games", m.get("total", 0))
         })
 
-    st.dataframe(move_rows, use_container_width=True)
+    df = pd.DataFrame(chart_rows)
 
-    # Identify most-played move
+    # -----------------------------------------------------------
+    # MAIN CHART — Move popularity
+    # -----------------------------------------------------------
+    st.write("### Move Statistics (Interactive Chart)")
+
+    games_chart = (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Move:N", sort="-y", title="Move"),
+            y=alt.Y("Games:Q", title="Games Played"),
+            tooltip=[
+                "Move",
+                "Games",
+                "White Wins %",
+                "Draw %",
+                "Black Wins %"
+            ]
+        )
+        .properties(
+            width="container",
+            height=450,
+            title="Move Popularity by Games Played"
+        )
+    )
+
+    st.altair_chart(games_chart, use_container_width=True)
+
+    # -----------------------------------------------------------
+    # OPTIONAL — Win Rate Comparison Chart
+    # -----------------------------------------------------------
+    with st.expander("Show Win/Draw/Loss Percentage Chart"):
+        win_chart = (
+            alt.Chart(df)
+            .transform_fold(
+                ["White Wins %", "Draw %", "Black Wins %"],
+                as_=["Category", "Value"]
+            )
+            .mark_bar()
+            .encode(
+                x=alt.X("Move:N", sort="-y"),
+                y=alt.Y("Value:Q", title="Percentage"),
+                color="Category:N",
+                tooltip=["Move", "Category", "Value"]
+            )
+            .properties(
+                width="container",
+                height=450,
+                title="Win / Draw / Loss Percentages"
+            )
+        )
+        st.altair_chart(win_chart, use_container_width=True)
+
+    # -----------------------------------------------------------
+    # BEST MOVE SUMMARY
+    # -----------------------------------------------------------
     best = max(moves, key=lambda x: x.get("games", x.get("total", 0)))
     best_move = best.get("san", "?")
     best_games = best.get("games", best.get("total", 0))
@@ -145,5 +200,5 @@ if run_button:
     st.success(f"Most played move: **{best_move}** ({best_games} games)")
 
 else:
-    st.info("Enter a FEN and select database options in the sidebar to begin.")
+    st.info("Enter a FEN and select database options to begin.")
 
