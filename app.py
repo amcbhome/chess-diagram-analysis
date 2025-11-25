@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import requests
 import chess
 import chess.svg
@@ -99,7 +99,7 @@ if run_button:
     try:
         board = chess.Board(fen)
         svg = chess.svg.board(board, size=450)
-        st.subheader("Board Position")
+        # st.subheader("Board Position")
         render_svg(svg)
     except Exception:
         st.error("Invalid FEN. Please correct it.")
