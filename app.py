@@ -49,14 +49,14 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("♟ Chess Position Explorer — Masters & Lichess Databases")
+st.title("♟ Chess Position Explorer")
 
 
 # -----------------------------------------------------------
 # SIDEBAR
 # -----------------------------------------------------------
 with st.sidebar:
-    st.header("Position & Database Settings")
+    st.header("Settings")
 
     fen = st.text_input(
         "Enter FEN:",
